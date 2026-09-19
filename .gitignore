@@ -1,0 +1,13 @@
+*.dump
+*.backup
+*.bak
+*.log
+output/
+.env
+.env.*
+*.pgpass
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
