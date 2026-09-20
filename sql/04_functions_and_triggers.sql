@@ -7,6 +7,7 @@ CREATE OR REPLACE FUNCTION get_member_full_name(p_member_id INTEGER)
 RETURNS TEXT
 LANGUAGE sql
 STABLE
+SET search_path = pg_catalog, public
 AS $$
     SELECT member_name FROM members WHERE member_id = p_member_id;
 $$;
@@ -15,6 +16,7 @@ CREATE OR REPLACE FUNCTION get_member_by_email(p_email TEXT)
 RETURNS SETOF members
 LANGUAGE sql
 STABLE
+SET search_path = pg_catalog, public
 AS $$
     SELECT * FROM members WHERE LOWER(email) = LOWER(p_email);
 $$;
@@ -23,6 +25,7 @@ CREATE OR REPLACE FUNCTION get_average_rating_by_trainer(p_trainer_id INTEGER)
 RETURNS NUMERIC
 LANGUAGE sql
 STABLE
+SET search_path = pg_catalog, public
 AS $$
     SELECT ROUND(AVG(b.rating), 2)
     FROM bookings b
@@ -34,6 +37,7 @@ CREATE OR REPLACE FUNCTION calculate_loyalty_points(p_member_id INTEGER)
 RETURNS INTEGER
 LANGUAGE sql
 STABLE
+SET search_path = pg_catalog, public
 AS $$
     SELECT (COUNT(*) FILTER (WHERE rating = 5) * 10)::INTEGER
     FROM bookings
@@ -44,6 +48,7 @@ CREATE OR REPLACE FUNCTION get_available_seats(p_session_id INTEGER)
 RETURNS INTEGER
 LANGUAGE sql
 STABLE
+SET search_path = pg_catalog, public
 AS $$
     SELECT (c.max_capacity
            - COUNT(b.booking_id) FILTER (WHERE b.attendance_status <> 'cancelled'))::INTEGER
@@ -59,6 +64,8 @@ CREATE OR REPLACE PROCEDURE add_new_booking(
     p_session_id INTEGER
 )
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     v_status sessions.status%TYPE;
@@ -95,6 +102,8 @@ CREATE OR REPLACE PROCEDURE update_member_status(
     p_new_status VARCHAR
 )
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 BEGIN
     IF p_new_status NOT IN ('active', 'inactive') THEN
@@ -111,6 +120,7 @@ $$;
 CREATE OR REPLACE FUNCTION validate_booking_rating()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $$
 BEGIN
     IF NEW.rating IS NOT NULL AND NEW.attendance_status <> 'attended' THEN
@@ -123,6 +133,7 @@ $$;
 CREATE OR REPLACE FUNCTION prevent_rating_rewrite()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $$
 BEGIN
     IF OLD.rating IS NOT NULL AND NEW.rating IS DISTINCT FROM OLD.rating THEN
@@ -135,6 +146,8 @@ $$;
 CREATE OR REPLACE FUNCTION sync_member_loyalty()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     v_member_id INTEGER := COALESCE(NEW.member_id, OLD.member_id);
@@ -152,15 +165,18 @@ $$;
 CREATE OR REPLACE FUNCTION write_audit_log()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
     v_record JSONB := COALESCE(TO_JSONB(NEW), TO_JSONB(OLD));
 BEGIN
-    INSERT INTO audit_logs (table_name, operation, record_id, old_values, new_values)
+    INSERT INTO audit_logs (table_name, operation, record_id, changed_by, old_values, new_values)
     VALUES (
         TG_TABLE_NAME,
         TG_OP,
         COALESCE(v_record ->> 'member_id', v_record ->> 'booking_id'),
+        SESSION_USER,
         CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN TO_JSONB(OLD) END,
         CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN TO_JSONB(NEW) END
     );
@@ -199,5 +215,12 @@ FOR EACH ROW EXECUTE FUNCTION write_audit_log();
 -- Synchronize points for the sample data loaded before these triggers existed.
 UPDATE members
 SET loyalty_points = calculate_loyalty_points(member_id);
+
+
+-- Sensitive write routines are available only to explicitly granted roles.
+REVOKE EXECUTE ON PROCEDURE public.add_new_booking(INTEGER, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON PROCEDURE public.update_member_status(INTEGER, VARCHAR) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.sync_member_loyalty() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.write_audit_log() FROM PUBLIC;
 
 COMMIT;
