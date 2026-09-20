@@ -1,0 +1,51 @@
+name: PostgreSQL CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ github.run_id }}
+          POSTGRES_DB: fitzone_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fitzone_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Load schema and run tests
+        env:
+          PGPASSWORD: ${{ github.run_id }}
+        run: |
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -d fitzone_db -f sql/01_schema.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -d fitzone_db -f sql/02_seed_data.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -d fitzone_db -f sql/04_functions_and_triggers.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -v skip_passwords=1 -d fitzone_db -f sql/05_roles.example.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -d fitzone_db -f sql/03_queries.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -d fitzone_db -f tests/manual_tests.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -d fitzone_db -f tests/security_tests.sql
