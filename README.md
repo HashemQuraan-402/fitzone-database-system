@@ -14,6 +14,10 @@ A PostgreSQL portfolio project for gym membership, trainers, classes, scheduled 
 - Transactional manual smoke tests
 - Schema diagram in `docs/fitzone-schema-diagram.png`
 
+## Database schema
+
+![FitZone PostgreSQL database schema](docs/fitzone-schema-diagram.png)
+
 ## Requirements
 
 PostgreSQL and the `psql` command-line client.
